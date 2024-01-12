@@ -1,0 +1,192 @@
+---
+title: "assignment 3"
+author: "Alireza"
+date: "2023-11-21"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**1- ** 
+First we read the data. Then, we shuffle it.
+```{r fig.dim = c(8, 5)}
+path <- "/Users/alireza/Desktop/DTI/1- Fall 23//Fundamentals of Applied Data Science/assignment 3/eBayAuctions (2).csv"
+data <- read.csv(path)
+set.seed(420) 
+shuffle_index <- sample(1:nrow(data))
+head(shuffle_index)
+data <- data[shuffle_index, ]
+head(data)
+```
+In this section, we convert the duration variable to categorical variable.
+
+```{r fig.dim = c(8, 5)}
+library(dplyr)
+clean_data <- data %>% mutate(Duration = factor(Duration, levels = c(3, 5, 7, 10), labels = c("very short", "short", "medium", "long")))
+str(clean_data)
+head(clean_data)
+```
+
+then, we split the data into training (60%) and validation (40%) datasets
+```{r}
+create_train_test <- function(dataset, size = 0.6, train = TRUE) {
+  n_row = nrow(dataset)
+  total_row = size * n_row
+  train_sample <- 1:total_row
+  if (train == TRUE) {
+    return (dataset[train_sample, ])
+  } else {
+    return (dataset[-train_sample, ])
+  }
+}
+
+data_train <- create_train_test(clean_data, 0.6, train = TRUE)
+data_test <- create_train_test(clean_data, 0.6, train = FALSE)
+dim(data_train)
+dim(data_test)
+```
+
+Then we use the following chunk to verify if the randomization process is correct.
+```{r}
+prop.table(table(data_train$Competitive.))
+prop.table(table(data_test$Competitive.))
+```
+**a. **In this section we fit the classification tree model, using the best-pruned tree. To avoid overfitting we set the minimum number of records in a terminal node to 50. Also, we set the maximum number of levels to be displayed at 7.
+
+```{r fig.dim = c(8, 5)}
+library(rpart)
+library(rpart.plot)
+
+fit <- rpart(Competitive.~., data = data_train, method = "class", minbucket=50, maxdepth=7)
+fit
+
+rpart.plot(fit, extra = 106)
+```
+Rules:
+1- If (OpenPrice >= 3.6) AND (ClosePrice < 20) Than (Competitive = No)
+2- If (OpenPrice >= 3.6) AND (ClosePrice >= 20) And (OpenPrice >= 20) Than (Competitive = No)
+3- If (OpenPrice >= 3.6) AND (ClosePrice >= 20) And (OpenPrice < 20) Than (Competitive = Yes)
+4- If (OpenPrice < 3.6) AND (ClosePrice < 3.6) And (Duration = Medium, Long) Than (Competitive = No)
+5- If (OpenPrice < 3.6) AND (ClosePrice < 3.6) And (Duration != Medium, Long) Than (Competitive = Yes)
+5- If (OpenPrice < 3.6) AND (ClosePrice > 3.6)  Than (Competitive = Yes)
+
+If we had to reduce the number of predictors I believe Currency, Category, and EndDay can be removed because they do not have any significant prediction power over this data.
+
+**b. ** We cannot use this model to predict the outcome of new auction, because it uses some variables as predictor which are not accessible before the auction. Thus, is it not possible to predict a variable based on the variables that we do not have.
+
+**c.  ** 
+According to the decision tree, 55 percent of the auctions are competitive.
+It is interesting that if open price be less than 3.6 and close price more than 3.6, there is a 99 percent chance that the auction was competitive.
+53 percent of auctions have open price of more than 3.6.
+
+
+**d. ** In this part we fit another decision tree using the predictors that can be used for predicting a new auction.
+
+
+```{r fig.dim = c(8, 5)}
+fit <- rpart(Competitive.~ Category + sellerRating + OpenPrice, data = data_train, method = "class", minbucket=50, maxdepth=7)
+
+rpart.plot(fit, extra = 106)
+```
+Rules:
+1- If (OpenPrice >= 3.6) AND (sellerRating >= 592) Than (Competitive = No)
+2- If (OpenPrice >= 3.6) AND (sellerRating < 592) Than (Competitive = Yes)
+3- If (OpenPrice < 3.6) Than (Competitive = Yes)
+
+
+
+**e. ** In this section we plot the resulting tree using a scatter plot.
+```{r fig.dim = c(8, 5)}
+library(ggplot2)
+library(hrbrthemes)
+
+
+ggplot(data_train, aes(x=OpenPrice, y=sellerRating, color=Competitive.)) + 
+    geom_point(size=2) +
+    theme_ipsum()
+```
+We have to delete the outliers to be able to draw the lines to classify the variable.
+
+```{r fig.dim = c(8, 5)}
+Q1 <- quantile(data_train$OpenPrice, probs=c(.25, .75), na.rm = FALSE)
+Q2 <- quantile(data_train$sellerRating, probs=c(.25, .75), na.rm = FALSE)
+
+eliminated_train<- subset(data_train, data_train$OpenPrice > (Q1[1] - 1.5*IQR(data_train$OpenPrice)) & data_train$OpenPrice < (Q1[2]+1.5*IQR(data_train$OpenPrice)) & data_train$sellerRating > (Q2[1] - 1.5*IQR(data_train$sellerRating)) & data_train$sellerRating < (Q2[2]+1.5*IQR(data_train$sellerRating)))
+
+ggplot(eliminated_train, aes(x=OpenPrice, y=sellerRating, color=Competitive.)) + 
+    geom_point(size=2) +
+    theme_ipsum()
+
+```
+Now we will add the splitting lines.
+
+```{r fig.dim = c(8, 5)}
+ggplot(eliminated_train, aes(x=OpenPrice, y=sellerRating, color=Competitive.)) + 
+    geom_point(size=2) +
+    theme_ipsum() +
+    geom_segment(aes(x = 3.6, y = 598, xend = 30, yend = 598)) +
+    geom_vline(xintercept = 3.6)
+
+
+```
+
+When open price is under 3.6 the auction is usually competitive which I think is reasonable as there are more people who can afford the product and its reasonable to have more than 1 bid. However, when the open price is more than 3.6 and the seller rating is more than 592 the auctions is usually not competitive which I do not find it reasonable. Thus, this needs more information about the data and the auction, because I do not know how the sellers are rated.
+
+By using merely the plot it is significantly hard to measure the accuracy of the splitting lines. However, by using the decision tree it is easy to see that these lines do a very good job in classifying the data.
+
+**f. ** First, we predict the test data using the decision tree.
+```{r fig.dim = c(8, 5)}
+predict_unseen <-predict(fit, data_test, type = 'class')
+#predict_unseen
+
+table_mat <- table(data_test$Competitive., predict_unseen)
+table_mat
+
+head(data_test[which(predict_unseen != data_test$Competitive.), ])
+head(data_test)
+```
+Then we preform an accuracy test from the confusion matrix.
+```{r}
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+print(paste('Accuracy for test', accuracy_Test))
+```
+
+As can be seen by the confusion matrix accuracy test, the model has an accuracy of about 70% which is not perfect, but it is something to build on.
+
+
+
+```{r}
+predict_unseen <- as.numeric(as.character(predict_unseen))
+library(ROCR)
+ predict_vall <- prediction(predict_unseen, data_test$Competitive.)
+plot(performance(predict_vall, measure="lift", x.measure="rpp"), colorize=TRUE)
+```
+
+```{r}
+# Calculating True Positive and False Positive Rate
+perf_val <- performance(predict_vall, "tpr", "fpr")
+#Plot the ROC curve
+plot(perf_val, col = "green", lwd = 1.5)
+```
+
+```{r}
+ks1.tree <- max(attr(perf_val, "y.values")[[1]] - (attr(perf_val, "x.values")[[1]]))
+ks1.tree
+```
+
+
+
+
+Overall, using the lift chart and the confusion matrix indicated that the model have a good accuracy but by doing extra work we should be able to increase the accuracy.
+
+
+
+
+
+
+
